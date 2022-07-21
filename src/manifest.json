@@ -1,0 +1,49 @@
+{
+	"name": "书签管理",
+	"description": "跨设备书签同步工具",
+	"offline_enabled": true,
+	"version": "0.0.7",
+	"manifest_version": 3,
+	"action": {
+		"icons": {
+			"16": "assets/logo.png",
+			"48": "assets/logo.png",
+			"128": "assets/logo.png"
+		},
+    "default_title": "Open"
+	},
+	"icons": {
+		"16": "assets/logo.png",
+		"48": "assets/logo.png",
+		"128": "assets/logo.png"
+	},
+	"background": {
+		"service_worker": "background.js"
+	},
+	"content_scripts": [
+		{
+			"matches": [
+				"http://*/*",
+				"https://*/*"
+			],
+			"run_at": "document_end",
+			"js": ["js/jquery.js", "js/chunk-vendors.js", "js/content.js"],
+			"css": ["css/content.css", "css/chunk-vendors.css"]
+		}
+	],
+	"chrome_url_overrides": {
+		"newtab": "html/newtab.html"
+	},
+	"web_accessible_resources": [
+		{
+			"resources":  ["css/*", "js/*", "html/*", "assets/*"],
+			"matches": ["<all_urls>"]
+		}
+	],
+	"permissions": [
+		"tabs", "activeTab", "bookmarks", "browsingData", "history", "scripting", "search", "storage", "alarms"
+	],
+	"host_permissions": [
+		"https://www.googleapis.com/*", "https://gstatic.com/*", "*://*/*"
+	]
+}
