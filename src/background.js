@@ -47,20 +47,20 @@ function Request(url, method, data) {
 }
 
 function addBookmarksToCloud(_bookmarks) {
-  return Request("/addBookmarkList", "POST", {
-    bookmarkList: _bookmarks
+  return Request("/addBookmarks", "POST", {
+    bookmarks: _bookmarks
   })
 }
 
 function updateBookmarksToCloud(_bookmarks) {
-  return Request("/updateBookmarkList", "POST", {
-    bookmarkList: _bookmarks
+  return Request("/updateBookmarks", "POST", {
+    bookmarks: _bookmarks
   })
 }
 
 function deleteBookmarksToCloud(_bookmarks) {
-  return Request("/deleteBookmarkList", "POST", {
-    bookmarkList: _bookmarks
+  return Request("/deleteBookmarks", "POST", {
+    bookmarks: _bookmarks
   })
 }
 
@@ -74,22 +74,6 @@ function deleteBookmarks(bookmarks) {
   return Promise.all(bookmarks.map(bookmark => {
     return new Promise((resolve, reject) => {
       chrome.bookmarks.remove(bookmark.id, () => {
-        resolve(true)
-      })
-    })
-  }))
-}
-
-// 批量更新本地书签
-function updateBookmarks(bookmarks) {
-  return Promise.all(bookmarks.map(bookmark => {
-    return new Promise(async (resolve, reject) => {
-      let parentItem = await findBookmarkParentIdByPath(bookmark)
-      chrome.bookmarks.update(bookmark.id, {
-        title: bookmark.title,
-        url: bookmark.url,
-        parentId: parentItem.id
-      }, () => {
         resolve(true)
       })
     })
@@ -139,6 +123,8 @@ function findBookmarkParentIdByPath(bookmark) {
       bookmarks = convertParentIdToPathArray(bookmarks)
       // 查找书签
       let _bookmark = bookmarks.find(item => {
+        console.log(bookmark.pathArray, item.pathArray);
+        console.log(title, item.title, item);
         return item.title === title &&
                 JSON.stringify(item.pathArray) === JSON.stringify(bookmark.pathArray)
       })
@@ -224,38 +210,32 @@ function cacheBookmarks(bookmarks) {
 function diffBookmarks(bookmarks) {
   const delList = []
   const addList = []
-  const updateList = []
 
   return new Promise((resolve, reject) => {
-    // 以title查找新增的书签
+    // 以title、url、pathArray同时判断是否相同
     bookmarks.forEach(bookmark => {
-      const oldBookmark = bookmarksMemory.find(oldBookmark => oldBookmark.title === bookmark.title)
-      if (!oldBookmark) {
+      let _bookmark = bookmarksMemory.find(item => {
+        return item.title === bookmark.title &&
+                item.url === bookmark.url &&
+                JSON.stringify(item.pathArray) === JSON.stringify(bookmark.pathArray)
+      })
+      if (!_bookmark) {
         addList.push(bookmark)
-      } else {
-        // 如果书签的url发生变化, 则认为是更新
-        if (oldBookmark.url !== bookmark.url) {
-          updateList.push(bookmark)
-        } else {
-          // 如果书签的path发生变化, 则认为是更新
-          if (oldBookmark.pathArray?.toString() !== bookmark.pathArray?.toString()) {
-            updateList.push(bookmark)
-          }
-        }
       }
     })
-
-    // 以title查找删除的书签
     bookmarksMemory.forEach(bookmark => {
-      const newBookmark = bookmarks.find(newBookmark => newBookmark.title === bookmark.title)
-      if (!newBookmark) {
+      let _bookmark = bookmarks.find(item => {
+        return item.title === bookmark.title &&
+                item.url === bookmark.url &&
+                JSON.stringify(item.pathArray) === JSON.stringify(bookmark.pathArray)
+      })
+      if (!_bookmark) {
         delList.push(bookmark)
       }
     })
     resolve({
       delList,
-      addList,
-      updateList
+      addList
     })
   })
 }
@@ -268,7 +248,6 @@ function syncBookmarksToCloud() {
     diffBookmarks(_bookmarks).then(diff => {
       Promise.all([
         addBookmarksToCloud(diff.addList),
-        updateBookmarksToCloud(diff.updateList),
         deleteBookmarksToCloud(diff.delList)
       ]).then((res) => {
         if (res.every(item => item.code === 200)) {
@@ -303,11 +282,9 @@ function syncBookmarksFromCloud() {
         // 先删除, 再新增, 再更新
         let delList = diff.delList
         let addList = diff.addList
-        let updateList = diff.updateList
         let result = await Promise.all([
           deleteBookmarks(delList),
           createBookmarks(addList),
-          updateBookmarks(updateList)
         ])
         if (result.every(item => item)) {
           console.log('同步云端书签到本地成功')
@@ -357,6 +334,10 @@ chrome.bookmarks.onMoved.addListener(function(id, bookmark) {
 
 // 安装时调用
 chrome.runtime.onInstalled.addListener(function() {
+  // 打开新页面
+  chrome.tabs.create({
+    url: 'chrome-extension://llfgmhieafabplkgelamcehkeboobopf/html/option.html'
+  })
   // 创建一个新的变量，存储一个空数组
   cacheBookmarks([]).then(bookmarks => {
     console.log("初始化书签数据成功");
