@@ -2,7 +2,7 @@
  * @Author: like like@lepudigital.com
  * @Date: 2022-07-11 17:32:41
  * @LastEditors: like like@lepudigital.com
- * @LastEditTime: 2022-07-20 15:10:31
+ * @LastEditTime: 2022-07-22 19:43:51
  * @FilePath: /omnis/src/pages/popup/App.vue
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -13,11 +13,51 @@ import { computed, watch } from '@vue/runtime-core';
 const dialogVisible = ref(false)
 const search = ref('')
 const allTabs = ref([])
+const allBookmarks = ref([])
+const code = ref('')
+const token = ref('')
+
+chrome.storage.local.get('token', (data) => {
+  if (data.token) {
+    token.value = data.token
+    getTabs()
+  } else {
+    token.value = ''
+  }
+})
+chrome.storage.local.get('code', (data) => {
+  if (data.code) {
+    code.value = data.code
+  } else {
+    code.value = ''
+  }
+})
+
+chrome.storage.local.onChanged.addListener((changes, areaName) => {
+  if (changes.token) {
+    token.value = changes.token.newValue
+    if (token.value) {
+      code.value = ''
+    }
+  }
+  if (changes.code) {
+    code.value = changes.code.newValue
+  }
+})
+
+
 const tabs = computed(() => {
   return allTabs.value.filter(item => {
     return item.url.includes(search.value) || item.title.includes(search.value)
   })
 })
+
+const bookmarks = computed(() => {
+  return allBookmarks.value.filter(item => {
+    return item.url.includes(search.value) || item.title.includes(search.value)
+  })
+})
+
 
 const handleClose = () => {
   dialogVisible.value = false
@@ -35,6 +75,7 @@ const getTabs = () => {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({type: 'get-tabs'}, (response) => {
       allTabs.value = response.tabs
+      allBookmarks.value = response.bookmarks
     })
   })
 }
@@ -46,17 +87,41 @@ watch(dialogVisible, (val) => {
   }
 })
 // 将点击的tab设为激活状态
-const handleClick = (tab) => {
-  chrome.runtime.sendMessage({type: 'set-active-tab', tab: tab}, (response)=> {
-    if (response.status === 'ok') {
-      handleClose()
-    }
-  })
+const handleClick = (tab, type) => {
+  if (type === 'bookmark') {
+    console.log(tab);
+    window.open(tab.url)
+  } else {
+    chrome.runtime.sendMessage({type: 'set-active-tab', tab: tab}, (response)=> {
+      if (response.status === 'ok') {
+        handleClose()
+      }
+    })
+  }
+  
 }
 
 const optionPage = () => {
   // 新窗口打开扩展设置页面
   window.open(chrome.runtime.getURL('html/option.html'))
+}
+
+// 收藏
+const handleStar = (tab) => {
+  chrome.runtime.sendMessage({type: 'star-tab', tab: tab}, (response) => {
+    if (response.status === 'ok') {
+      getTabs()
+    }
+  })
+}
+
+// 取消收藏
+const handleUnStar = (tab) => {
+  chrome.runtime.sendMessage({type: 'unstar-tab', tab: tab}, (response) => {
+    if (response.status === 'ok') {
+      getTabs()
+    }
+  })
 }
 
 
@@ -71,6 +136,10 @@ const optionPage = () => {
     :show-close="false"
     custom-class="app-popup-dialog">
     <template #header>
+      <div class="app-qrcode-container" v-if="!token">
+        <img src="chrome-extension://llfgmhieafabplkgelamcehkeboobopf/assets/qrcode.png">
+        <div class="app-dialog-code">请扫描二维码登录, 设备验证码{{code}}</div>
+      </div>
       <div class="app-search-container">
         <input v-model="search" class="app-search-input"  placeholder="请输入搜索内容" />
         <span class="app-search-enter">Enter</span>
@@ -79,9 +148,9 @@ const optionPage = () => {
     <div class="app-dialog-body">
       <div class="app-list">
         <!-- 循环tabs -->
-        <div class="app-item" v-for="(tab, index) in tabs" :key="index" @click="handleClick(tab)">
+        <div class="app-item" v-for="(tab, index) in tabs" :key="index" @click="handleClick(tab, 'tab')">
           <div class="app-favicon">
-            <img :src="tab.favIconUrl" width="20">
+            <img v-if="tab.favIconUrl" :src="tab.favIconUrl" width="20">
           </div>
           <div class="app-info" title="跳转">
             <div class="app-title">
@@ -92,8 +161,34 @@ const optionPage = () => {
             </div>
           </div>
           <div class="app-option">
+            <span class="app-icon" title="收藏" v-if="tab.star" @click.stop="handleUnStar(tab)">
+              <el-icon :size="24" color="#3265cb"><StarFilled /></el-icon>
+            </span>
+            <span class="app-icon" title="收藏" v-else @click.stop="handleStar(tab)">
+              <el-icon :size="24" color="#3265cb"><Star /></el-icon>
+            </span>
+          </div>
+        </div>
+
+        <!-- 循环bookmarks -->
+
+        <div class="app-item" v-for="(bookmark, index) in bookmarks" :key="index+tabs.length" @click="handleClick(bookmark, 'bookmark')">
+          <div class="app-favicon">
             <span class="app-icon" title="收藏">
-              <el-icon :size="24"><Star /></el-icon>
+              <el-icon :size="24" color="#3265cb"><StarFilled /></el-icon>
+            </span>
+          </div>
+          <div class="app-info" title="跳转">
+            <div class="app-title">
+              {{bookmark.title}}
+            </div>
+            <div class="app-url">
+              {{bookmark.url}}
+            </div>
+          </div>
+          <div class="app-option">
+            <span class="app-icon" title="收藏" @click.stop="handleUnStar(bookmark)">
+              <el-icon :size="24" color="#3265cb"><StarFilled /></el-icon>
             </span>
           </div>
         </div>
@@ -122,7 +217,23 @@ const optionPage = () => {
   justify-content: center;
   align-items: center;
 }
-
+.app-qrcode-container {
+  height: 120px;
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #e6e6e6;
+  display: flex;
+  align-items: center;
+  img {
+    width: 100px;
+    height: 100px;
+  }
+  .app-dialog-code {
+    flex: 1;
+    font-size: 18px;
+    padding-left: 20px;
+  }
+}
 .app-search-container {
   width: 100%;
   height: 42px;
@@ -185,6 +296,8 @@ const optionPage = () => {
         color: #333;
         letter-spacing: 2px;
         line-height: 24px;
+        overflow: hidden;
+        height: 24px;
       }
       .app-url {
         font-size: 12px;

@@ -1,72 +1,132 @@
 var token = ''
+var code = ''
 var syncFuncStatus = false
-chrome.storage.local.get('openId', function(result) {
-  if (result.openId) {
-    token = result.openId
-  }
-})
-chrome.storage.local.get('syncFuncStatus', function(result) {
-  if (result.syncFuncStatus) {
-    syncFuncStatus = result.syncFuncStatus
+
+// 从本地获取token 如果没有则启动获取验证码的定时器
+chrome.storage.local.get('token', function(result) {
+  if (result.token) {
+    // 如果有token, 则直接开启同步
+    chrome.storage.local.remove('code')
+    token = result.token
     openSyncFunction()
+  } else {
+    createGetCodeTimer()
   }
 })
 
-// 监听syncFuncStatus的变化
+// 监听token的变化, 当token存在时, 关闭获取验证码的定时器, 启动同步定时器
 chrome.storage.local.onChanged.addListener(function(changes, areaName) {
-  if (changes.syncFuncStatus) {
-    syncFuncStatus = changes.syncFuncStatus.newValue
-    if (syncFuncStatus) {
+  if (changes.token) {
+    token = changes.token.newValue
+    code = ''
+    if (token) {
+      chrome.storage.local.remove('code')
+      clearGetCodeTimer()
+      clearGetTokenTimer()
       openSyncFunction()
     } else {
       closeSyncFunction()
+      clearGetTokenTimer()
+      createGetCodeTimer()
     }
   }
 })
 
 
+// 创建1分钟定时器, 获取验证码
+function createGetCodeTimer() {
+  // 先执行一次
+  getCode()
+  chrome.alarms.create('get-code-timer', {
+    delayInMinutes: 1,
+    periodInMinutes: 1
+  })
+}
+// 清除1分钟获取验证码的定时器
+function clearGetCodeTimer() {
+  chrome.alarms.clear('get-code-timer')
+}
+
+// 创建每1秒执行一次的定时器, 获取token
+function createGetTokenTimer() {
+  chrome.alarms.create('get-token-timer', {
+    when: Date.now() + 1000,
+  })
+}
+// 清除get-token-timer
+function clearGetTokenTimer() {
+  chrome.storage.local.remove('code')
+  chrome.alarms.clear('get-token-timer')
+}
+
 
 function Request(url, method, data) {
-  const baseUrl = "http://192.168.34.152:3000/api/bookmark"
+  const baseUrl = "http://192.168.33.191:8880"
   url = baseUrl + url
-  return new Promise((resolve, reject) => {
-    fetch(url, {
-      method: method,
-      body: JSON.stringify(data),
-      headers: {
-        'Content-Type': 'application/json',
-        token: token
-      }
+  let headers = {
+    'Content-Type': 'application/json',
+  }
+  if (token) {
+    headers['token'] = token
+  }
+
+
+  if (method === 'GET') {
+    if (data) {
+      url += '?' + Object.keys(data).map(key => key + '=' + data[key]).join('&')
+    }
+    return fetch(url, {
+      method,
+      headers
     }).then(response => response.json())
-    .then(response => {
-      resolve(response)
-    }).catch(error => {
-      reject(error)
-    })
+  } else {
+    return fetch(url, {
+      method,
+      headers,
+      body: JSON.stringify(data)
+    }).then(response => response.json())
+  }
+  
+}
+
+// 获取设备验证码
+function getCodeFn() {
+  return Request('/applet/verificationCode', 'GET').then(response => {
+    if (response.success) {
+      return response.content
+    } else {
+      return getCodeFn()
+    }
   })
 }
 
-function addBookmarksToCloud(_bookmarks) {
-  return Request("/addBookmarks", "POST", {
-    bookmarks: _bookmarks
+async function getCode() {
+  code = await getCodeFn()
+  chrome.storage.local.set({ code })
+  createGetTokenTimer()
+}
+// 获取token
+function getToken() {
+  return Request('/applet/getToken', 'GET', { code }).then(response => {
+    if (response.success && response.content) {
+      token = response.content
+      clearGetTokenTimer()
+      chrome.storage.local.set({ token })
+    } else {
+      createGetTokenTimer()
+    }
   })
 }
 
-function updateBookmarksToCloud(_bookmarks) {
-  return Request("/updateBookmarks", "POST", {
-    bookmarks: _bookmarks
-  })
-}
 
-function deleteBookmarksToCloud(_bookmarks) {
-  return Request("/deleteBookmarks", "POST", {
-    bookmarks: _bookmarks
-  })
+// 上传更新到服务端
+function pushUpdate(diff) {
+  return Request('/bookmark/update', "POST", diff)
 }
 
 
 function getBookmarksForCloud() {
-  return Request("/getBookmarks", "GET")
+  return Request("/bookmark/get", "GET")
 }
 
 // 从本地删除书签
@@ -88,7 +148,7 @@ function createBookmarks(bookmarks) {
       chrome.bookmarks.create({
         title: bookmark.title,
         url: bookmark.url,
-        parentId: parentItem.id
+        parentId: parentItem?.id || '0'
       }, () => {
         resolve(true)
       })
@@ -112,7 +172,9 @@ function getBookmarks() {
 
 // 通过路径查找书签的parentId
 function findBookmarkParentIdByPath(bookmark) {
-  let title = bookmark.pathArray.pop()
+  let _pathArray = JSON.parse(bookmark.path)
+  console.log(bookmark.path, _pathArray, bookmark);
+  let title = _pathArray?.pop() || ''
 
   // 获取本地所有书签
   return new Promise((resolve, reject) => {
@@ -123,10 +185,8 @@ function findBookmarkParentIdByPath(bookmark) {
       bookmarks = convertParentIdToPathArray(bookmarks)
       // 查找书签
       let _bookmark = bookmarks.find(item => {
-        console.log(bookmark.pathArray, item.pathArray);
-        console.log(title, item.title, item);
         return item.title === title &&
-                JSON.stringify(item.pathArray) === JSON.stringify(bookmark.pathArray)
+                item.path === JSON.stringify(_pathArray)
       })
       resolve(_bookmark)
     })
@@ -182,7 +242,8 @@ function convertParentIdToPathArray(bookmarks) {
   // 神深拷贝
   let bookmarksCopy = JSON.parse(JSON.stringify(bookmarks))
   let _bookmarks = bookmarks.map(bookmark => {
-    bookmark.pathArray = getPathArray(bookmarksCopy, bookmark.parentId)
+    let pathArray = getPathArray(bookmarksCopy, bookmark.parentId)
+    bookmark.path = JSON.stringify(pathArray)
 
     // 删除parentId
     delete bookmark.parentId
@@ -215,9 +276,10 @@ function diffBookmarks(bookmarks) {
     // 以title、url、pathArray同时判断是否相同
     bookmarks.forEach(bookmark => {
       let _bookmark = bookmarksMemory.find(item => {
+        console.log(bookmark.path, item.path);
         return item.title === bookmark.title &&
                 item.url === bookmark.url &&
-                JSON.stringify(item.pathArray) === JSON.stringify(bookmark.pathArray)
+                item.path === bookmark.path
       })
       if (!_bookmark) {
         addList.push(bookmark)
@@ -227,7 +289,7 @@ function diffBookmarks(bookmarks) {
       let _bookmark = bookmarks.find(item => {
         return item.title === bookmark.title &&
                 item.url === bookmark.url &&
-                JSON.stringify(item.pathArray) === JSON.stringify(bookmark.pathArray)
+                item.path === bookmark.path
       })
       if (!_bookmark) {
         delList.push(bookmark)
@@ -246,11 +308,8 @@ function syncBookmarksToCloud() {
     let _bookmarks = flattenBookmarks(bookmarks)
     _bookmarks = convertParentIdToPathArray(_bookmarks)
     diffBookmarks(_bookmarks).then(diff => {
-      Promise.all([
-        addBookmarksToCloud(diff.addList),
-        deleteBookmarksToCloud(diff.delList)
-      ]).then((res) => {
-        if (res.every(item => item.code === 200)) {
+      pushUpdate(diff).then((res) => {
+        if (res.success) {
           console.log('同步书签到云端成功')
           console.log('将修改后的书签缓存到本地');
           cacheBookmarks(_bookmarks).then(() => {
@@ -268,20 +327,17 @@ function syncBookmarksToCloud() {
 // 将云书签同步到本地
 function syncBookmarksFromCloud() {
   getBookmarksForCloud().then(response => {
-    if (response.code === 200) {
+    if (response.success) {
       console.log('获取云书签成功')
       // 云端书签的path转为pathArray
-      let cloudBookmarks = response.data.map(bookmark => {
-        bookmark.pathArray = JSON.parse(bookmark.path)
-        delete bookmark.path
-        return bookmark
-      })
+      let cloudBookmarks = response.content
       // 与本地书签进行diff计算
       diffBookmarks(cloudBookmarks).then(async diff => {
         console.log(diff);
         // 先删除, 再新增, 再更新
         let delList = diff.delList
         let addList = diff.addList
+        console.log(diff);
         let result = await Promise.all([
           deleteBookmarks(delList),
           createBookmarks(addList),
@@ -299,9 +355,6 @@ function syncBookmarksFromCloud() {
 
 
 
-// 开启同步
-function startSync() {
-}
 
 // 当书签发生变化时
 function onBookmarksChange(bookmarks) {
@@ -335,9 +388,9 @@ chrome.bookmarks.onMoved.addListener(function(id, bookmark) {
 // 安装时调用
 chrome.runtime.onInstalled.addListener(function() {
   // 打开新页面
-  chrome.tabs.create({
-    url: 'chrome-extension://llfgmhieafabplkgelamcehkeboobopf/html/option.html'
-  })
+  // chrome.tabs.create({
+  //   url: 'chrome-extension://llfgmhieafabplkgelamcehkeboobopf/html/option.html'
+  // })
   // 创建一个新的变量，存储一个空数组
   cacheBookmarks([]).then(bookmarks => {
     console.log("初始化书签数据成功");
@@ -358,7 +411,7 @@ chrome.runtime.onStartup.addListener(function() {
 
 // 创建定时任务, 每5分钟同步一次
 function openSyncFunction() {
-  if (syncFuncStatus && token)  {
+  if (token)  {
     console.log('开启同步定时任务')
   } else {
     return false
@@ -382,7 +435,14 @@ chrome.alarms.onAlarm.addListener(function(alarm) {
   if (alarm.name === "sync") {
     syncBookmarksToCloud()
   }
+  if (alarm.name === "get-code-timer") {
+    getCode()
+  }
+  if (alarm.name === "get-token-timer") {
+    getToken()
+  }
 })
+
 
 
 
@@ -400,16 +460,54 @@ chrome.action.onClicked.addListener((tab) => {
 })
 
 
+// 获取所有打开的标签页, 过滤掉没有url的标签页
+function getAllTabs() {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.query({}, (tabs) => {
+      let tabsWithUrl = tabs.filter(tab => tab.url)
+      const result = {
+        tabs: [],
+        bookmarks: []
+      }
+      // 深拷贝bookmarksMemory
+      let bookmarksMemoryCopy = JSON.parse(JSON.stringify(bookmarksMemory)).filter(item => item.url)
+      // 看这个url是否在书签数据中
+      for (let tab of tabsWithUrl) {
+        let star = false
+        for (let i = 0; i < bookmarksMemoryCopy.length; i++) {
+          if (tab.url === bookmarksMemoryCopy[i].url) {
+            star = true
+            // 从书签数据中删除这个url
+            bookmarksMemoryCopy.splice(i, 1)
+            break
+          }
+        }
+        result.tabs.push({
+          star: star,
+          ...tab
+        })
+      }
+      // 将书签中其它的url加入到结果中
+      for (let bookmark of bookmarksMemoryCopy) {
+        if (!result.tabs.find(item => item.url === bookmark.url)) {
+          result.bookmarks.push({
+            url: bookmark.url,
+            title: bookmark.title
+          })
+        }
+      }
+      resolve(result)
+    })
+  })
+}
+
+
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // 获取tabs
   if (request.type === 'get-tabs') {
-    chrome.tabs.query({}, (_tabs) => {
-      const tabs = _tabs.filter((tab) => {
-        return tab.url.indexOf('http') === 0
-      })
-      sendResponse({
-        tabs
-      })
+    getAllTabs().then(result => {
+      sendResponse(result)
     })
   }
 
@@ -424,6 +522,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       { focused: true }
     )
     sendResponse({ status: 'ok' })
+  }
+
+  // 监听收藏
+  if (request.type === 'star-tab') {
+    // 添加书签
+    chrome.bookmarks.create({
+      title: request.tab.title,
+      url: request.tab.url
+    }, (tab) => {
+      console.log('添加书签成功')
+      sendResponse({ status: 'ok' })
+    })
+  }
+
+  // 监听取消收藏
+  if (request.type === 'unstar-tab') {
+    // 删除书签
+    chrome.bookmarks.search({
+      title: request.tab.title,
+      url: request.tab.url
+    }, (tab) => {
+      chrome.bookmarks.remove(tab[0].id, () => {
+        console.log('删除书签成功')
+        sendResponse({ status: 'ok' })
+      })
+    })
   }
   return true
 })
