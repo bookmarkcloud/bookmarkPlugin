@@ -31,9 +31,6 @@
 			"css": ["css/content.css", "css/chunk-vendors.css"]
 		}
 	],
-	"chrome_url_overrides": {
-		"newtab": "html/newtab.html"
-	},
 	"web_accessible_resources": [
 		{
 			"resources":  ["css/*", "js/*", "html/*", "assets/*"],

@@ -32,7 +32,7 @@ const plugins = [
 
 
 const pages = {}
-const pageNames = ['content', 'newtab', 'option']
+const pageNames = ['content', 'newtab']
 pageNames.forEach(pageName => {
   pages[pageName] = {
     entry: `src/pages/${pageName}/main.js`,
@@ -40,9 +40,8 @@ pageNames.forEach(pageName => {
     filename: `html/${pageName}.html`
   }
 })
-const publicPath = process.env.NODE_ENV === 'production' ? 'chrome-extension://llfgmhieafabplkgelamcehkeboobopf/' : '/'
 module.exports = defineConfig({
-  publicPath,
+  publicPath: '/',
   pages,
   transpileDependencies: true,
   configureWebpack: {

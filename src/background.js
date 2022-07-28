@@ -61,7 +61,7 @@ function clearGetTokenTimer() {
 
 
 function Request(url, method, data) {
-  const baseUrl = "http://192.168.33.191:8880"
+  const baseUrl = "https://api.bookmarkcloud.net"
   url = baseUrl + url
   let headers = {
     'Content-Type': 'application/json',
