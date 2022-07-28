@@ -7,6 +7,9 @@ node_modules
 .env.local
 .env.*.local
 backgroundCopy
+/bookmarkcloud
+/bookmarkcloud.zip
+
 # Log files
 npm-debug.log*
 yarn-debug.log*
