@@ -16,6 +16,9 @@ const allTabs = ref([])
 const allBookmarks = ref([])
 const code = ref('')
 const token = ref('')
+const qrcodePath = ref('')
+
+qrcodePath.value =  chrome.runtime.getURL('assets/qrcode.png')
 
 chrome.storage.local.get('token', (data) => {
   if (data.token) {
@@ -137,7 +140,7 @@ const handleUnStar = (tab) => {
     custom-class="app-popup-dialog">
     <template #header>
       <div class="app-qrcode-container" v-if="!token">
-        <img src="chrome-extension://llfgmhieafabplkgelamcehkeboobopf/assets/qrcode.png">
+        <img :src="qrcodePath">
         <div class="app-dialog-code">请扫描二维码登录, 设备验证码{{code}}</div>
       </div>
       <div class="app-search-container">
