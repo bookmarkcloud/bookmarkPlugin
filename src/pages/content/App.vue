@@ -10,6 +10,7 @@
 <script setup>
 import { ref } from '@vue/reactivity';
 import { computed, watch } from '@vue/runtime-core';
+import { ElMessage } from 'element-plus'
 const dialogVisible = ref(false)
 const search = ref('')
 const allTabs = ref([])
@@ -23,7 +24,6 @@ qrcodePath.value =  chrome.runtime.getURL('assets/qrcode.png')
 chrome.storage.local.get('token', (data) => {
   if (data.token) {
     token.value = data.token
-    getTabs()
   } else {
     token.value = ''
   }
@@ -33,6 +33,14 @@ chrome.storage.local.get('code', (data) => {
     code.value = data.code
   } else {
     code.value = ''
+  }
+})
+
+// 从本地缓存获取RenderData
+chrome.storage.local.get('RenderData', (data) => {
+  if (data.RenderData) {
+    allTabs.value = data.RenderData.tabs
+    allBookmarks.value = data.RenderData.bookmarks
   }
 })
 
@@ -46,7 +54,13 @@ chrome.storage.local.onChanged.addListener((changes, areaName) => {
   if (changes.code) {
     code.value = changes.code.newValue
   }
+  if (changes.RenderData) {
+    allTabs.value = changes.RenderData.newValue.tabs
+    allBookmarks.value = changes.RenderData.newValue.bookmarks
+  }
 })
+
+
 
 
 const tabs = computed(() => {
@@ -73,22 +87,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   sendResponse({status: 'ok'})
 })
 
-// 获取tabs
-const getTabs = () => {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({type: 'get-tabs'}, (response) => {
-      allTabs.value = response.tabs
-      allBookmarks.value = response.bookmarks
-    })
-  })
-}
 
-// watch dialogVisible.value的变化
-watch(dialogVisible, (val) => {
-  if (val) {
-    getTabs()
-  }
-})
 // 将点击的tab设为激活状态
 const handleClick = (tab, type) => {
   if (type === 'bookmark') {
@@ -113,7 +112,9 @@ const optionPage = () => {
 const handleStar = (tab) => {
   chrome.runtime.sendMessage({type: 'star-tab', tab: tab}, (response) => {
     if (response.status === 'ok') {
-      getTabs()
+      ElMessage.success('收藏成功')
+    } else {
+      ElMessage.error('收藏失败')
     }
   })
 }
@@ -122,7 +123,9 @@ const handleStar = (tab) => {
 const handleUnStar = (tab) => {
   chrome.runtime.sendMessage({type: 'unstar-tab', tab: tab}, (response) => {
     if (response.status === 'ok') {
-      getTabs()
+      ElMessage.success('取消收藏成功')
+    } else {
+      ElMessage.error('取消收藏失败')
     }
   })
 }
@@ -135,7 +138,6 @@ const handleUnStar = (tab) => {
     v-model="dialogVisible"
     width="600px"
     :before-close="handleClose"
-    :close-on-click-modal="false"
     :show-close="false"
     custom-class="app-popup-dialog">
     <template #header>
@@ -178,7 +180,7 @@ const handleUnStar = (tab) => {
         <div class="app-item" v-for="(bookmark, index) in bookmarks" :key="index+tabs.length" @click="handleClick(bookmark, 'bookmark')">
           <div class="app-favicon">
             <span class="app-icon" title="收藏">
-              <el-icon :size="24" color="#3265cb"><StarFilled /></el-icon>
+              <el-icon :size="24" color="#3265cb"><Link /></el-icon>
             </span>
           </div>
           <div class="app-info" title="跳转">
@@ -200,7 +202,7 @@ const handleUnStar = (tab) => {
     <template #footer>
       <div class="app-dialog-footer">
         <span class="app-result-count">Result 200</span>
-        <el-button text type="primary" @click="optionPage">option</el-button>
+        <el-button text type="primary" @click="dialogVisible = false">关闭</el-button>
       </div>
     </template>
   </el-dialog>
@@ -339,6 +341,9 @@ const handleUnStar = (tab) => {
   padding: 0 20px;
   text-align: left;
   box-sizing: border-box;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   .app-result-count {
     font-size: 12px;
     color: #666;
