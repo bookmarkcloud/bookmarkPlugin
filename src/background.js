@@ -3,6 +3,15 @@ var code = ''
 var syncFuncStatus = false
 var bookmarkIsChanging = false
 var testChangeCount = 0
+const version = 0
+chrome.storage.local.set({
+    hasNewVersion: false
+})
+chrome.storage.local.set({
+    newVersionTips: ''
+})
+
+
 // 从本地获取token 如果没有则启动获取验证码的定时器
 chrome.storage.local.get('token', function (result) {
     if (result.token) {
@@ -37,10 +46,8 @@ chrome.storage.local.onChanged.addListener(function (changes, areaName) {
 
 // 创建5分钟定时器, 获取验证码
 function createGetCodeTimer() {
-    // 先执行一次
-    getCode()
     chrome.alarms.create('get-code-timer', {
-        delayInMinutes: 5,
+        delayInMinutes: 0,
         periodInMinutes: 5
     })
 }
@@ -88,8 +95,23 @@ function Request(url, method, data) {
             body: JSON.stringify(data)
         }).then(response => response.json())
     }
-
 }
+// 检测版本信息
+function checkVersion() {
+    Request('/version/getVersion', 'GET', {version}).then(result => {
+        if (result.success) {
+            if (result.content.hasNew) {
+                chrome.storage.local.set({
+                    hasNewVersion: true,
+                    newVersionTips: result.content.tip
+                })
+            }
+        }
+    }).catch(err => {
+        console.log(err)
+    })
+}
+
 
 // 获取设备验证码
 function getCodeFn() {
@@ -415,7 +437,6 @@ chrome.tabs.onAttached.addListener(function (tabId, attachInfo) {
 // 监听tab窗口间移动 onDetached移出
 chrome.tabs.onDetached.addListener(function (tabId, detachInfo) {
     console.log("tab detached: " + tabId);
-    onBookmarksChange()
     getAllTabs()
 })
 
@@ -424,6 +445,8 @@ chrome.tabs.onDetached.addListener(function (tabId, detachInfo) {
 
 // 安装时调用
 chrome.runtime.onInstalled.addListener(function () {
+    // 检测版本
+    checkVersion()
     // 打开新页面
     // chrome.tabs.create({
     //   url: 'chrome-extension://llfgmhieafabplkgelamcehkeboobopf/html/option.html'
@@ -437,11 +460,18 @@ chrome.runtime.onInstalled.addListener(function () {
 
 // 启动时调用
 chrome.runtime.onStartup.addListener(function () {
+    // 检测版本
+    checkVersion()
     // 从本地缓存中获取书签数据
-    getBookmarks().then(bookmarks => {
-        cacheBookmarks(bookmarks).then(() => {
-            console.log("启动时缓存书签数据成功");
-        })
+    chrome.storage.local.get(['bookmarks'], function (result) {
+        if (result.bookmarks) {
+            console.log('从本地缓存中获取书签数据成功')
+            console.log(result.bookmarks)
+            cacheBookmarks(result.bookmarks).then(bookmarks => {
+                console.log("初始化书签数据成功");
+                console.log(bookmarks)
+            })
+        }
     })
 })
 
@@ -462,8 +492,7 @@ function openSyncFunction() {
     }
     // 启动定时任务
     chrome.alarms.create("sync", {
-        delayInMinutes: 1,
-        periodInMinutes: 1
+        when: Date.now() + 1000 * 60,
     })
 }
 
@@ -475,7 +504,7 @@ function closeSyncFunction() {
 // 定时任务执行时调用
 chrome.alarms.onAlarm.addListener(function (alarm) {
     if (alarm.name === "sync") {
-        syncBookmarksToCloud()
+        openSyncFunction()
     }
     if (alarm.name === "get-code-timer") {
         getCode()

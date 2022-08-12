@@ -2,7 +2,7 @@
 	"name": "书签管理",
 	"description": "跨设备书签同步工具",
 	"offline_enabled": true,
-	"version": "1.0.0",
+	"version": "0.0.1",
 	"manifest_version": 3,
 	"action": {
 		"icons": {

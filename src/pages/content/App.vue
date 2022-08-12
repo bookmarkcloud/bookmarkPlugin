@@ -18,8 +18,23 @@ const allBookmarks = ref([])
 const code = ref('')
 const token = ref('')
 const qrcodePath = ref('')
+const hasNewVersion = ref(false)
+const newVersionTips = ref('')
 
 qrcodePath.value =  chrome.runtime.getURL('assets/qrcode.png')
+
+chrome.storage.local.get('hasNewVersion', (data) => {
+  if (data.hasNewVersion) {
+    hasNewVersion.value = data.hasNewVersion
+  } else {
+    hasNewVersion.value = false
+  }
+})
+chrome.storage.local.get('newVersionTips', (data) => {
+  if (data.newVersionTips) {
+    newVersionTips.value = data.newVersionTips
+  }
+})
 
 chrome.storage.local.get('token', (data) => {
   if (data.token) {
@@ -45,6 +60,13 @@ chrome.storage.local.get('RenderData', (data) => {
 })
 
 chrome.storage.local.onChanged.addListener((changes, areaName) => {
+  // 新版本
+  if (changes.hasNewVersion) {
+    hasNewVersion.value = changes.hasNewVersion.newValue
+  }
+  if (changes.newVersionTips) {
+    newVersionTips.value = changes.newVersionTips.newValue
+  }
   if (changes.token) {
     token.value = changes.token.newValue
     if (token.value) {
@@ -130,13 +152,16 @@ const handleUnStar = (tab) => {
   })
 }
 
+const openSite = () => {
+  window.open('https://www.bookmarkcloud.net')
+}
 
 </script>
 
 <template>
   <el-dialog
     v-model="dialogVisible"
-    width="600px"
+    width="800px"
     :before-close="handleClose"
     :show-close="false"
     custom-class="app-popup-dialog">
@@ -147,7 +172,6 @@ const handleUnStar = (tab) => {
       </div>
       <div class="app-search-container">
         <input v-model="search" class="app-search-input"  placeholder="请输入搜索内容" />
-        <span class="app-search-enter">Enter</span>
       </div>
     </template>
     <div class="app-dialog-body">
@@ -201,7 +225,10 @@ const handleUnStar = (tab) => {
     </div>
     <template #footer>
       <div class="app-dialog-footer">
-        <span class="app-result-count">Result 200</span>
+        <span class="app-result-count" v-if="hasNewVersion">
+          <el-badge value="new"><el-button text type="primary" @click="openSite">{{newVersionTips}}</el-button></el-badge>
+        </span>
+        <span class="app-result-count" v-else></span>
         <el-button text type="primary" @click="dialogVisible = false">关闭</el-button>
       </div>
     </template>
